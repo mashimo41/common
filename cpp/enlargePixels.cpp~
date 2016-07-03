@@ -1,0 +1,41 @@
+#include <opencv2/opencv.hpp>
+#include <iostream>
+int main(int argc, char *argv[]) {
+
+  cv::Mat src = cv::imread(argv[1]);
+  cv::Mat gray;
+  cv::Mat dst = cv::Mat::ones(cv::Size(src.cols, src.rows), CV_64FC1);
+  cv::cvtColor(src, gray, CV_BGR2GRAY);
+  int max=0;
+
+  for(int y=0; y < gray.rows; y++) {
+    for(int x=0; x < gray.cols; x++) {
+      int a = gray.at<uchar>(y,x);
+      dst.at<double>(y,x) = (double)a/255.0;
+    }
+  }
+  /*
+  //std::cout << dst << std::endl;
+  for(int y=0; y < dst.rows; y++) {
+    for(int x=0; x < dst.cols; x++) {
+      double a = dst.at<double>(y,x);
+      dst.at<double>(y,x) = a*a;
+    }
+  }
+  */
+
+  for(int y=0; y < dst.rows; y++) {
+    for(int x=0; x < dst.cols; x++) {
+      double a = gray.at<uchar>(y,x);
+      gray.at<uchar>(y,x) = a*a*a*a/255/255/255;
+    }
+  }
+  //  cv::imwrite("IMG_2351_filtered.jpg",gray);
+
+  cv::imshow("input", dst);
+  cv::imshow("output", gray);
+  cv::waitKey(0);
+
+  return 0;
+}
+

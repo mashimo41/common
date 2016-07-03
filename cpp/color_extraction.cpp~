@@ -1,0 +1,193 @@
+#include <opencv2/core/core.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <iostream>
+
+using namespace cv;
+using namespace std;
+
+void colorExtraction(Mat* src, Mat* dst,
+		     int code,
+		     int ch1Lower, int ch1Upper, //range of H
+		     int ch2Lower, int ch2Upper, //range of S
+		     int ch3Lower, int ch3Upper  //range of V
+		     );
+
+void colorConvert(Mat* src, Mat* dst,
+		  int code,
+		  int ch1Lower, int ch1Upper,
+		  int ch2Lower, int ch2Upper,
+		  int ch3Lower, int ch3Upper
+		  );
+
+//参照、構造体、クラス、しきい値処理はThresh関数を使う
+//structure from mortion
+//libviso2 visual 
+//visual SFM
+
+int main(int argc, char **argv) {
+
+  const char *imagename = argc > 1 ? argv[1] : "Lena.JPG";
+  Mat src_img = imread(imagename);
+  if(!src_img.data)
+    return -1;
+  Mat dst_img;                                   //↓肌色や赤のHSV値
+  //colorExtraction(&src_img, &dst_img, CV_BGR2HSV,0, 15, 50, 255, 50, 255);
+  //Matは普通の変数と同じ扱い(配列的な扱いではない)
+
+  //Convert Green to Blue
+  //colorConvert(&src_img, &dst_img, CV_BGR2HSV,50, 70, 0, 255, 0, 255);
+
+  //Convert Beer to Soda(convert the area with Saturation non-zero to blue)
+  //colorConvert(&src_img, &dst_img, CV_BGR2HSV, 0, 180, 20, 255, 0, 255);
+
+  //Detect Rocks
+  colorConvert(&src_img, &dst_img, CV_BGR2HSV, 70, 180, 0, 70, 0, 255);
+
+  ///Note////////////////////////////////
+  //Hue: red 0, green 60, blue 120     //
+  //Saturation: monotone 0, color 255  //
+  //Value: light 255, dark 0           //
+  ///////////////////////////////////////
+
+  namedWindow("output",CV_WINDOW_AUTOSIZE);
+  imshow("output", dst_img);
+  waitKey(0);
+
+  return 0;
+}
+
+void colorExtraction(Mat* src, Mat* dst,
+		     int code,    //code:convert type RGB2GRAY,RGB2HSV, ...
+		     int ch1Lower, int ch1Upper,
+		     int ch2Lower, int ch2Upper,
+		     int ch3Lower, int ch3Upper
+		     )
+{
+  Mat hsv;
+  int lower[3];
+  int upper[3];
+
+  Mat lut = Mat(256, 1, CV_8UC3); //"CV_8UC3"image: value is 0~255
+                                  //lut: [256×1] matrix
+
+  //Convert RGB to HSV
+  cvtColor(*src, hsv, code);
+
+  //Create look-up-table(LUT) for binarization
+  lower[0] = ch1Lower;
+  lower[1] = ch2Lower;
+  lower[2] = ch3Lower;
+
+  upper[0] = ch1Upper;
+  upper[1] = ch2Upper;
+  upper[2] = ch3Upper;
+
+  //As to all colors, adapt 0 or 255 acording to hsv channels
+  //0か1のバイナリを割り当てたいけど、lutの決まりでビット深度を揃えなくてはならないので、0と255になる
+  //下記の走査が画素の走査→チャンネルの走査の順に行われている
+  for (int i = 0; i < 256; i++){
+    for (int k = 0; k < 3; k++){
+      //指定値が正しく、下限＜上限のように与えられていれば、範囲内のH,S,Vに255を、範囲外に0を割り当てる
+      if (lower[k] <= upper[k]){
+	if ((lower[k] <= i) && (i <= upper[k])){
+	  lut.data[i*lut.step+k] = 255;
+	}else{
+	  lut.data[i*lut.step+k] = 0;
+	}
+      //指定値が、上限＜下限のようになってしまっている場合、範囲外のH,S,Vに255を、範囲内に0を割り当てる
+      }else{
+	if ((i <= upper[k]) || (lower[k] <= i)){
+	  lut.data[i*lut.step+k] = 255;
+	}else{
+	  lut.data[i*lut.step+k] = 0;
+	}
+      }
+    }
+  }
+
+  //LUTを使用して二値化
+  //LUT(Mat src, Mat lut, Mat dst):convert src to dst acording to lut(look up table)
+  LUT(hsv, lut, hsv);
+
+  //Channel毎に分解(channel(HSV):Hue, Saturation, Value)
+  vector<Mat> channels;      ///  Mat channels[3];        deferent way
+  split(hsv, channels);      ///  split(hsv, channels)
+
+  //マスクを作成
+  //bitwise_and(Mat src1, Mat src2, Mat dst):dst = src1 and arc2
+  Mat maskImage;
+  bitwise_and(channels[0], channels[1], maskImage);
+  bitwise_and(maskImage, channels[2], maskImage);
+
+  //白黒で出力するための画像生成
+  Mat gray;
+  cvtColor(*src, gray, CV_BGR2GRAY);
+  Mat binary;
+  threshold(gray, binary, 0, 255, THRESH_BINARY);
+
+  //出力
+  //src.copyTo(Mat dst, Mat mask):copy src to dst with mask
+  //here, mask is the tool to extract color
+  Mat maskedImage;
+  binary.copyTo(maskedImage, maskImage);
+  //ふつうのMatはm.copyTo()
+  //ポインタ型のMatはm->copyTo()
+  *dst = maskedImage;
+}
+
+
+void colorConvert(Mat* src, Mat* dst,
+		  int code,
+		  int ch1Lower, int ch1Upper,
+		  int ch2Lower, int ch2Upper,
+		  int ch3Lower, int ch3Upper
+		  )
+{
+  Mat hsv;
+  int lower[3];
+  int upper[3];
+
+  //Convert RGB to HSV                                                        
+  cvtColor(*src, hsv, code);
+
+  //change selected color to blue                                              
+  lower[0] = ch1Lower;
+  lower[1] = ch2Lower;
+  lower[2] = ch3Lower;
+  
+  upper[0] = ch1Upper;
+  upper[1] = ch2Upper;
+  upper[2] = ch3Upper;
+
+  for(int y=0; y<hsv.rows; y++) {
+    for(int x=0; x<hsv.cols; x++) {
+      int a = hsv.step*y + (x*hsv.channels());                     
+      //純粋な赤H=0 or 360などの境界値を認識するため、条件式には＝をつける  
+      //指定範囲のHSV値の色を検出               
+      if(hsv.data[a] >=lower[0] && hsv.data[a] <=upper[0] &&
+         hsv.data[a+1] >=lower[1] && hsv.data[a+1] <=upper[1] &&
+	 hsv.data[a+2] >=lower[2] && hsv.data[a+2] <=upper[2]) {        
+	hsv.data[a] = 120; //指定色部分を青に
+	//hsv.data[a] = 63; soda color                    
+	hsv.data[a+1] = 200;              
+      }
+    }
+  }
+
+  ///////////////////////////////////////////////////////////////////////////
+  //これだと連環の終始をまたぐ赤色を十分に指定できないので、実際には以下のようにする（colorExtraction関数を参考）
+  //if(lower[0]<=upper[0]) {
+  //  if(hue)
+  //    指定部分を青に;
+  //} else if(upper[0]<=lower[0]){
+  //  if(指定範囲)　　　　　　　　←連環境界をまたいだ範囲指定
+  //    指定部分を青に;
+  //}これを各チャンネルで行うので、必要に応じてfor文を回すとよい
+  ///////////////////////////////////////////////////////////////////////////    
+  //Convert HSV to RGB
+  Mat rgb;  
+  cvtColor(hsv, rgb, CV_HSV2BGR);
+
+  *dst =rgb;
+}
